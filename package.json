@@ -1,0 +1,15 @@
+{
+  "name": "agentscribe",
+  "version": "1.0.0",
+  "description": "CROO provider agent that generates agent store listings and documentation",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@croo-network/sdk": "0.2.1"
+  }
+}
