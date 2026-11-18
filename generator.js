@@ -41,6 +41,7 @@ function canon(label) {
 function splitItems(val, commaOk) {
   const strip = (x) => x.replace(/^\s*([-*]|\d+[.)])\s*/, '').trim();
   let items = val.split('\n').map(strip).filter(Boolean);
+  if (items.length === 1 && /^-\s/.test(items[0].trim()) === false && /^\s*-\s/.test(val)) items = val.split(/\s+-\s+/).map(strip).filter(Boolean);
   if (items.length === 1) {
     const semi = items[0].split(';').map((x) => x.trim()).filter(Boolean);
     if (semi.length > 1) items = semi;
@@ -50,11 +51,20 @@ function splitItems(val, commaOk) {
 }
 
 export function parseInput(raw) {
-  const text = ascii(raw || '').replace(/\r/g, '').trim();
+  let text = ascii(raw || '').replace(/\r/g, '').trim();
   const f = {};
   let cur = null;
   let labelled = 0;
   const lineRe = /^\s*[-*]?\s*([A-Za-z][A-Za-z ]{1,24}?)\s*:\s*(.*)$/;
+  // Some buyer forms flatten line breaks. If labels are not on their own lines,
+  // split on Capitalised labels found mid-line.
+  const labelLines = text.split('\n').filter((l) => { const m = l.match(lineRe); return m && canon(m[1]); }).length;
+  if (labelLines <= 1) {
+    const all = [...new Set(Object.values(ALIASES).flat())].sort((a, b) => b.length - a.length);
+    const alt = all.map((a) => cap(a).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    const inlineRe = new RegExp('(^|\\s)(' + alt + ')\\s*:', 'g');
+    text = text.replace(inlineRe, (m, sp, lab) => '\n' + lab + ':').trim();
+  }
   for (const line of text.split('\n')) {
     const m = line.match(lineRe);
     const key = m ? canon(m[1]) : null;
