@@ -20,7 +20,7 @@ const TAG_MAP = {
   'Development & Code': ['json', 'api', 'code', 'debug', 'developer', 'sdk', 'script', 'bug', 'error', 'documentation', 'docs', 'listing'],
   'Data & Analytics': ['data', 'csv', 'analytics', 'extract', 'report', 'parse', 'dashboard', 'statistics'],
   'DeFi & Trading': ['defi', 'trade', 'trading', 'token', 'swap', 'wallet', 'whale', 'crypto', 'onchain'],
-  'Content & Creative': ['write', 'writing', 'content', 'copy', 'blog', 'image', 'creative', 'design', 'summary', 'social', 'marketing'],
+  'Content & Creative': ['write', 'writing', 'content', 'copy', 'blog', 'image', 'creative', 'design', 'social', 'marketing'],
 };
 
 export function ascii(s) {
@@ -52,7 +52,7 @@ function splitItems(val, commaOk) {
 }
 
 export function parseInput(raw) {
-  let text = ascii(raw || '').replace(/\r/g, '').trim();
+  let text = ascii(raw || '').replace(/\r/g, '').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").trim();
   const f = {};
   let cur = null;
   let labelled = 0;
@@ -133,13 +133,21 @@ function parsePrice(s) {
 
 function suggestTags(text, given) {
   const l = text.toLowerCase();
+  const key = (t) => t.toLowerCase().replace(/&amp;/g, '&').replace(/[^a-z0-9&]+/g, ' ').trim();
   const scored = Object.entries(TAG_MAP)
     .map(([tag, kws]) => [tag, kws.filter((k) => new RegExp('\\b' + k).test(l)).length])
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([t]) => t);
-  const merged = [...given, ...scored.filter((t) => !given.includes(t))];
-  return merged.slice(0, 3);
+  const out = [];
+  const seen = new Set();
+  for (const t of [...given, ...scored]) {
+    const k = key(t);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  return out.slice(0, 3);
 }
 
 function guessName(p) {
