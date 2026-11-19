@@ -25,6 +25,7 @@ const TAG_MAP = {
 
 export function ascii(s) {
   return String(s)
+    .replace(/\u20a6/g, 'NGN ').replace(/\u20ac/g, 'EUR ').replace(/\u00a3/g, 'GBP ')
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
@@ -60,26 +61,39 @@ export function parseInput(raw) {
   // split on Capitalised labels found mid-line.
   const labelLines = text.split('\n').filter((l) => { const m = l.match(lineRe); return m && canon(m[1]); }).length;
   if (labelLines <= 1) {
-    const all = [...new Set(Object.values(ALIASES).flat())].sort((a, b) => b.length - a.length);
-    const alt = all.map((a) => cap(a).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    const inlineRe = new RegExp('(^|\\s)(' + alt + ')\\s*:', 'g');
-    text = text.replace(inlineRe, (m, sp, lab) => '\n' + lab + ':').trim();
+    const SAFE = ['name', 'agent name', 'does', 'what it does', 'description', 'input', 'inputs', 'output', 'outputs', 'price', 'pricing', 'delivery', 'delivery time', 'sla', 'limitations', 'limits', 'tags', 'features', 'examples', 'deliverable', 'deliverables', 'requirements', 'requirement'];
+    const esc = (a) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const byLen = (arr) => arr.slice().sort((a, b) => b.length - a.length);
+    const safeAlt = byLen(SAFE).map(esc).join('|');
+    text = text.replace(new RegExp('(^|\\s)(' + safeAlt + ')\\s*:', 'gi'), (m, sp, lab) => '\n' + lab + ':');
+    const allAlt = byLen([...new Set(Object.values(ALIASES).flat())]).map((a) => esc(cap(a))).join('|');
+    text = text.replace(new RegExp('(^|\\s)(' + allAlt + ')\\s*:', 'g'), (m, sp, lab) => '\n' + lab + ':');
+    text = text.trim();
   }
   for (const line of text.split('\n')) {
     const m = line.match(lineRe);
     const key = m ? canon(m[1]) : null;
     if (key) {
-      cur = key;
       labelled++;
+      if (['name', 'price', 'delivery'].includes(key) && f[key]) { cur = null; continue; }
+      cur = key;
       f[cur] = (f[cur] ? f[cur] + '\n' : '') + m[2];
     } else if (cur) {
       f[cur] += '\n' + line;
     }
   }
-  if (!labelled) f.does = text;
+  if (!labelled) {
+    const wc = text.split(/\s+/).filter(Boolean).length;
+    if (wc > 0 && wc <= 5 && !/[.!?]/.test(text)) f.name = text;
+    else f.does = text;
+    const pm = text.match(/(\d+(?:\.\d+)?)\s*(?:USDC|USDT|USD)\b/i) || text.match(/\$\s?(\d+(?:\.\d+)?)/);
+    if (pm) f.price = pm[1] + ' USDC';
+    const dm = text.match(/\b(\d+\s*(?:minutes?|mins?|hours?|hrs?))\b/i);
+    if (dm) f.delivery = dm[1];
+  }
   const out = { raw: text, labelled };
   for (const k of Object.keys(f)) f[k] = f[k].trim();
-  out.name = f.name || '';
+  out.name = (f.name || '').split('\n')[0].trim();
   out.does = (f.does || '').replace(/\s+/g, ' ');
   out.input = f.input ? splitItems(f.input, true) : [];
   out.output = f.output ? splitItems(f.output, true) : [];
@@ -94,7 +108,7 @@ export function parseInput(raw) {
 }
 
 function sentences(s) {
-  return (s.replace(/\s+/g, ' ').match(/[^.!?]+[.!?]*/g) || []).map((x) => x.trim()).filter(Boolean);
+  return (s.replace(/\s+/g, ' ').match(/(?:[^.!?]|[.!?](?!\s|$))+[.!?]*/g) || []).map((x) => x.trim()).filter(Boolean);
 }
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const low = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
@@ -129,16 +143,17 @@ function suggestTags(text, given) {
 }
 
 function guessName(p) {
-  if (p.name) return p.name;
-  const words = p.does.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3).slice(0, 2);
-  return words.length ? words.map(cap).join('') + 'Agent' : 'Your Agent';
+  return p.name || 'Your Agent';
 }
 
 export function generate(raw) {
   const p = parseInput(raw);
   const warn = [];
   const name = guessName(p);
-  const sents = sentences(p.does);
+  const allSents = sentences(p.does);
+  const noteRe = /^(note|disclaimer|warning)\s*:/i;
+  const noteSents = allSents.filter((x) => noteRe.test(x));
+  const sents = allSents.filter((x) => !noteRe.test(x));
   const first = sents[0] ? endDot(cap(sents[0])) : '';
   const inW = p.input[0] ? low(p.input[0]) : 'content';
   const outW = p.output[0] ? low(p.output[0]) : 'a written result';
@@ -153,12 +168,13 @@ export function generate(raw) {
   if (!p.input.length) warn.push('No buyer input described. Buyers will not know what to send. Add "Input: ...".');
   if (!p.output.length) warn.push('No deliverable described. Add "Output: ...".');
   if (!price) warn.push('No numeric price found. Add "Price: 0.05".');
+  if (/\b(NGN|EUR|GBP|naira|euros?|pounds?)\b/i.test(p.price)) warn.push('Price looks like it is not in USDC. CROO prices are in USDC; convert it before listing.');
   if (!sla.given) warn.push('No delivery time given. Defaulted to 30 min.');
   if (!p.limits.length) warn.push('No limitations given. Default ones are listed; edit them to match reality.');
   if (p.does.length > 600) warn.push('Description is very long for a store card. Use the short version.');
 
   // Short store description
-  const shortParts = [first];
+  const shortParts = [first || (name !== 'Your Agent' ? name + '.' : '')];
   if (p.input.length) shortParts.push('You send: ' + p.input.slice(0, 3).join(', ') + '.');
   if (p.output.length) shortParts.push('You get: ' + p.output.slice(0, 3).join(', ') + '.');
   if (slaText) shortParts.push('Delivery within ' + slaText.trim() + '.');
@@ -204,16 +220,20 @@ export function generate(raw) {
   }
 
   // Limitations
-  const limits = p.limits.length
+  const limits = (p.limits.length
     ? p.limits
     : [
         'Results are based only on what you submit in the order (default - edit if untrue).',
         'One order covers one request; no follow-up chat unless the listing says so (default - edit if untrue).',
         'Output is delivered as plain text (default - edit if untrue).',
-      ];
+      ]).concat(noteSents.map((x) => x.replace(noteRe, '').trim()).filter(Boolean).map((x) => cap(x)));
 
   // Service form fields
-  const serviceName = truncate(name.length > 40 ? name.slice(0, 40) : name, 40);
+  let serviceName = name;
+  if (name.length > 40) {
+    serviceName = name.slice(0, 40).replace(/\s+\S*$/, '').trim() || name.slice(0, 40);
+    warn.push('Agent name is long; service name shortened to "' + serviceName + '". Consider a shorter name.');
+  }
   const form = {
     serviceName,
     price: price || '0.05',
