@@ -63,3 +63,8 @@ assert(ln.warnings.some((w) => /name is long/.test(w)));
 
 assert(generate('Name: A\nName: B\nDoes: One thing done well for many people who need it done quickly today.').report.includes('LISTING PACK for: A\n'));
 console.log('AgentScribe stress regression tests passed');
+
+const tg = generate('name: PriceWatch does: Tracks token prices and alerts you when a token moves more than 5% in an hour so traders never miss a pump. input: token symbol output: alert summary price: $0.10 delivery: 2 hours tags: DeFi & Trading');
+assert.deepEqual(tg.tags, ['DeFi & Trading']);
+assert.deepEqual(generate('Name: X\nDoes: Tracks token prices for traders every hour with alerts.\nTags: defi &amp; trading, DeFi & Trading').tags, ['defi & trading']);
+console.log('Tag dedupe tests passed');
